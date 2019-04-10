@@ -20,23 +20,22 @@ import (
 	"fmt"
 	"reflect"
 	"sync"
-	"time"
 )
 
 var printLock sync.Mutex
 
 func Println(args ...interface{}) {
-	printLock.Lock()
-	fmt.Printf("%d:", time.Now().Unix())
-	fmt.Println(args...)
-	printLock.Unlock()
+	//printLock.Lock()
+	//fmt.Printf("%d:", time.Now().Unix())
+	//fmt.Println(args...)
+	//printLock.Unlock()
 }
 
 func Printf(sfmt string, args ...interface{}) {
-	printLock.Lock()
-	fmt.Printf("%d:", time.Now().Unix())
-	fmt.Printf(sfmt, args...)
-	printLock.Unlock()
+	//printLock.Lock()
+	//fmt.Printf("%d:", time.Now().Unix())
+	//fmt.Printf(sfmt, args...)
+	//printLock.Unlock()
 }
 
 // ProtoAdaptor used to send out event
