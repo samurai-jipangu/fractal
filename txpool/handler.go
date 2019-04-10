@@ -37,7 +37,7 @@ func NewTxpoolStation(txpool *TxPool) *TxpoolStation {
 	}
 	router.Subscribe(nil, station.txChan, router.P2PTxMsg, []*types.Transaction{}) // recive txs form remote
 	router.Subscribe(nil, station.txChan, router.NewPeerPassedNotify, nil)         // new peer is handshake completed
-	router.Subscribe(nil, station.txChan, router.NewTxs, nil)                      // NewTxs recived , prepare to broadcast
+	router.Subscribe(nil, station.txChan, router.NewTxs, []*types.Transaction{})   // NewTxs recived , prepare to broadcast
 	go station.handleMsg()
 	return station
 }
