@@ -35,37 +35,54 @@ func NewTxpoolStation(txpool *TxPool) *TxpoolStation {
 		txChan:  make(chan *router.Event),
 		txpool:  txpool,
 	}
-	router.Subscribe(nil, station.txChan, router.P2PTxMsg, []*types.Transaction{})
-	router.Subscribe(nil, station.txChan, router.NewPeerPassedNotify, nil)
+	router.Subscribe(nil, station.txChan, router.P2PTxMsg, []*types.Transaction{}) // recive txs form remote
+	router.Subscribe(nil, station.txChan, router.NewPeerPassedNotify, nil)         // new peer is handshake completed
+	router.Subscribe(nil, station.txChan, router.NewTxs, nil)                      // NewTxs recived , prepare to broadcast
 	go station.handleMsg()
 	return station
 }
 
-var duration int64
-var durmax int64
-var durcount int64
-var txscount int64
-
 func (s *TxpoolStation) handleMsg() {
+	InTxsCache := make([]*types.Transaction, 0, 1024)
+	OutTxsCache := make([]*types.Transaction, 0, 1024)
+	CacheTriger := make(chan struct{})
+	timer := time.NewTimer(time.Second)
 	for {
-		e := <-s.txChan
-		switch e.Typecode {
-		case router.P2PTxMsg:
-			start := time.Now().Unix()
-			txs := e.Data.([]*types.Transaction)
-			s.txpool.AddRemotes(txs)
-			dur := time.Now().Unix() - start
-			durcount++
-			txscount += int64(len(txs))
-			if durmax < dur {
-				durmax = dur
+		select {
+		case <-timer.C:
+			CacheTriger <- struct{}{}
+		case <-CacheTriger:
+			if len(InTxsCache) > 0 {
+				go s.txpool.AddRemotes(InTxsCache)
+				InTxsCache = InTxsCache[:0]
 			}
-			duration += dur
-			if durcount%1024 == 0 {
-				router.Println("Txpool max/avg/count/txs/per:", durmax, duration/durcount, durcount, txscount, len(txs))
+			if len(OutTxsCache) > 0 {
+				go router.SendEvent(&router.Event{To: router.GetStationByName("broadcast"), Typecode: router.P2PTxMsg, Data: OutTxsCache})
+				OutTxsCache = OutTxsCache[:0]
 			}
-		case router.NewPeerPassedNotify:
-			go s.syncTransactions(e)
+		case e := <-s.txChan:
+			switch e.Typecode {
+			case router.NewTxs:
+				txs := e.Data.([]*types.Transaction)
+				OutTxsCache = append(OutTxsCache, txs...)
+				if len(OutTxsCache) > 1000 {
+					CacheTriger <- struct{}{}
+					break
+				}
+				timer.Stop()
+				timer.Reset(time.Second)
+			case router.P2PTxMsg:
+				txs := e.Data.([]*types.Transaction)
+				InTxsCache = append(InTxsCache, txs...)
+				if len(InTxsCache) > 1000 {
+					CacheTriger <- struct{}{}
+					break
+				}
+				timer.Stop()
+				timer.Reset(time.Second)
+			case router.NewPeerPassedNotify:
+				go s.syncTransactions(e)
+			}
 		}
 	}
 }

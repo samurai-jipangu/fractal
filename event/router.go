@@ -110,6 +110,7 @@ const (
 	NewPeerPassedNotify                            // 1028 same chain ID and gensis block
 	TxEv                                           // 1029
 	NewMinedEv                                     // 1030
+	NewTxs                                         // 1031
 	EndSize
 )
 
