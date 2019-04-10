@@ -73,6 +73,7 @@ func (adaptor *ProtoAdaptor) adaptorEvent() {
 func (adaptor *ProtoAdaptor) adaptorLoop(peer *p2p.Peer, ws p2p.MsgReadWriter) error {
 	remote := remotePeer{ws: ws, peer: peer}
 	log.Info("New remote station", "detail", remote.peer.String())
+	router.Println("New remote station", "detail=", remote.peer.String())
 	station := router.NewRemoteStation(string(remote.peer.ID().Bytes()[:8]), &remote)
 	adaptor.peerMangaer.addActivePeer(&remote)
 	router.StationRegister(station)
@@ -83,9 +84,13 @@ func (adaptor *ProtoAdaptor) adaptorLoop(peer *p2p.Peer, ws p2p.MsgReadWriter) e
 		router.StationUnregister(station)
 		url := remote.peer.Node().String()
 		router.SendTo(station, nil, router.DelPeerNotify, &url)
+		router.Println("remove remote station", "detail=", remote.peer.String())
+		time.Sleep(time.Minute) // delay to prevent the reconnection
 	}()
 
-	monitor := make(map[int][]int64)
+	//monitor := make(map[int][]int64)
+	monitor := [router.P2PEndSize]int{}
+	timeMonitor := [router.P2PEndSize][3]int64{}
 	for {
 		msg, err := ws.ReadMsg()
 		if err != nil {
@@ -99,15 +104,33 @@ func (adaptor *ProtoAdaptor) adaptorLoop(peer *p2p.Peer, ws p2p.MsgReadWriter) e
 		if err != nil {
 			return err
 		}
-
-		ret := checkDDOS(monitor, e)
-		if ret {
-			time.Sleep(10 * time.Second) // delay to prevent the reconnection
-			router.SendTo(nil, nil, router.DisconectCtrl, e.From)
-			//ToDo blacklist
-			return fmt.Errorf("DDos %x", e.From.Name())
+		monitor[e.Typecode]++
+		if e.Typecode != router.P2PTxMsg {
+			router.Println("monitor=", router.TypeName[e.Typecode], "count=", monitor[e.Typecode], "Txs=", monitor[router.P2PTxMsg])
 		}
+		/*
+			ret := checkDDOS(monitor, e)
+			if ret {
+				router.SendTo(nil, nil, router.DisconectCtrl, e.From)
+				//ToDo blacklist
+				return fmt.Errorf("DDos %x", e.From.Name())
+			}
+		*/
+		start := time.Now().Unix()
 		router.SendEvent(e)
+		dur := time.Now().Unix() - start
+		timeMonitor[e.Typecode][2] += dur
+		if timeMonitor[e.Typecode][0] < dur {
+			timeMonitor[e.Typecode][0] = dur
+		}
+		if timeMonitor[e.Typecode][1] > dur || timeMonitor[e.Typecode][1] == 0 {
+			timeMonitor[e.Typecode][1] = dur
+		}
+		if e.Typecode != router.P2PTxMsg {
+			router.Println("timeMonitor=", router.TypeName[e.Typecode],
+				"max/min/avg=", timeMonitor[e.Typecode][0], timeMonitor[e.Typecode][1], timeMonitor[e.Typecode][2],
+				"txs =", timeMonitor[router.P2PTxMsg][0], timeMonitor[router.P2PTxMsg][1], timeMonitor[router.P2PTxMsg][2])
+		}
 	}
 }
 
@@ -177,6 +200,10 @@ func (adaptor *ProtoAdaptor) msgBroadcast(e *router.Event) {
 	if err != nil {
 		return
 	}
+
+	router.Println("msgBroadcast:", router.TypeName[e.Typecode])
+	start := time.Now().Unix()
+	defer router.Println("exit msgBroadcast:", router.TypeName[e.Typecode], time.Now().Unix()-start)
 
 	send := func(peer *remotePeer) {
 		p2p.Send(peer.ws, 0, pack)

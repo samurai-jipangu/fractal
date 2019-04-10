@@ -20,7 +20,24 @@ import (
 	"fmt"
 	"reflect"
 	"sync"
+	"time"
 )
+
+var printLock sync.Mutex
+
+func Println(args ...interface{}) {
+	printLock.Lock()
+	fmt.Printf("%d:", time.Now().Unix())
+	fmt.Println(args...)
+	printLock.Unlock()
+}
+
+func Printf(sfmt string, args ...interface{}) {
+	printLock.Lock()
+	fmt.Printf("%d:", time.Now().Unix())
+	fmt.Printf(sfmt, args...)
+	printLock.Unlock()
+}
 
 // ProtoAdaptor used to send out event
 type ProtoAdaptor interface {
@@ -95,6 +112,25 @@ const (
 	NewMinedEv                                     // 1030
 	EndSize
 )
+
+var TypeName = [P2PEndSize]string{
+	P2PRouterTestInt:            "-Int",            // 0
+	P2PRouterTestInt64:          "-Int64",          // 1
+	P2PRouterTestString:         "-String",         // 2
+	P2PRouterTestNewPeer:        "-NewPeer",        // 3 fixed bug
+	P2PRouterTestDelPeer:        "-DelPeer",        // 4 fixed bug
+	P2PRouterTestDisconnectPeer: "-DisconnectCtrl", // 5 fixed bug
+	P2PGetStatus:                "G-Status",        // 6 Status request
+	P2PStatusMsg:                "R-Status",        // 7 Status response
+	P2PGetBlockHashMsg:          "G-B-Hash",        // 8 BlockHash request
+	P2PGetBlockHeadersMsg:       "G-H",             // 9 BlockHeader request
+	P2PGetBlockBodiesMsg:        "G-B-Body",        // 10 BlockBodies request
+	P2PBlockHeadersMsg:          "R-H",             // 11 BlockHeader response
+	P2PBlockBodiesMsg:           "R-B-Body",        // 12 BlockBodies response
+	P2PBlockHashMsg:             "R-B-Hash",        // 13 BlockHash response
+	P2PNewBlockHashesMsg:        "N-B-Hash",        // 14 NewBlockHash notify
+	P2PTxMsg:                    "N-TXs",           // 15 TxMsg notify
+}
 
 var typeListMutex sync.RWMutex
 var typeList = [EndSize]reflect.Type{}

@@ -17,6 +17,8 @@
 package txpool
 
 import (
+	"time"
+
 	router "github.com/fractalplatform/fractal/event"
 	"github.com/fractalplatform/fractal/types"
 )
@@ -39,13 +41,29 @@ func NewTxpoolStation(txpool *TxPool) *TxpoolStation {
 	return station
 }
 
+var duration int64
+var durmax int64
+var durcount int64
+var txscount int64
+
 func (s *TxpoolStation) handleMsg() {
 	for {
 		e := <-s.txChan
 		switch e.Typecode {
 		case router.P2PTxMsg:
+			start := time.Now().Unix()
 			txs := e.Data.([]*types.Transaction)
 			s.txpool.AddRemotes(txs)
+			dur := time.Now().Unix() - start
+			durcount++
+			txscount += int64(len(txs))
+			if durmax < dur {
+				durmax = dur
+			}
+			duration += dur
+			if durcount%1024 == 0 {
+				router.Println("Txpool max/avg/count/txs/per:", durmax, duration/durcount, durcount, txscount, len(txs))
+			}
 		case router.NewPeerPassedNotify:
 			go s.syncTransactions(e)
 		}

@@ -132,6 +132,9 @@ func (bs *BlockchainStation) loop() {
 // handleMsg is invoked whenever an inbound message is received from a remote
 // peer. The remote connection is torn down upon returning any error.
 func (bs *BlockchainStation) handleMsg(e *router.Event) error {
+	router.Printf("handleMsg:%s %x\n", router.TypeName[e.Typecode], e.From.Name())
+	start := time.Now().Unix()
+	defer router.Printf("exit handleMsg:%s %x %d\n", router.TypeName[e.Typecode], e.From.Name(), time.Now().Unix()-start)
 	switch e.Typecode {
 	case router.P2PGetStatus:
 		status := bs.chainStatus()
