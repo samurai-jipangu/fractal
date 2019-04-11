@@ -108,7 +108,7 @@ func (bs *BlockchainStation) handshake(e *router.Event) {
 		}
 		log.Info("Handshake complete", "station", fmt.Sprintf("%x", e.From.Name()))
 		bs.downloader.AddStation(e.From, remote.TD, remote.CurrentNumber, remote.CurrentBlock)
-		router.SendTo(e.From, nil, router.NewPeerPassedNotify, e.Data)
+		router.SendTo(e.From, nil, router.NewPeerPassedNotify, nil)
 	case <-timer:
 		log.Warn("Handshake timeout", "station", fmt.Sprintf("%x", e.From.Name()))
 		disconnect()

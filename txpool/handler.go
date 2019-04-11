@@ -19,14 +19,40 @@ package txpool
 import (
 	"time"
 
+	mapset "github.com/deckarep/golang-set"
 	router "github.com/fractalplatform/fractal/event"
 	"github.com/fractalplatform/fractal/types"
 )
+
+const (
+	maxKonwnTxs      = 1024
+	txsSendDelay     = 50 * time.Millisecond
+	txsSendThreshold = 32
+)
+
+type peerInfo struct {
+	knownTxs mapset.Set
+	peer     router.Station
+}
+
+func (p *peerInfo) addTxs(txs []*types.Transaction) {
+	for _, tx := range txs {
+		p.knownTxs.Add(tx.Hash())
+	}
+	for p.knownTxs.Cardinality() >= maxKonwnTxs {
+		p.knownTxs.Pop()
+	}
+}
+
+func (p *peerInfo) hadTxs(tx *types.Transaction) bool {
+	return p.knownTxs.Contains(tx.Hash())
+}
 
 type TxpoolStation struct {
 	station router.Station
 	txChan  chan *router.Event
 	txpool  *TxPool
+	peers   map[string]*peerInfo
 }
 
 func NewTxpoolStation(txpool *TxPool) *TxpoolStation {
@@ -34,30 +60,94 @@ func NewTxpoolStation(txpool *TxPool) *TxpoolStation {
 		station: router.NewLocalStation("txpool", nil),
 		txChan:  make(chan *router.Event),
 		txpool:  txpool,
+		peers:   make(map[string]*peerInfo),
 	}
 	router.Subscribe(nil, station.txChan, router.P2PTxMsg, []*types.Transaction{}) // recive txs form remote
 	router.Subscribe(nil, station.txChan, router.NewPeerPassedNotify, nil)         // new peer is handshake completed
+	router.Subscribe(nil, station.txChan, router.DelPeerNotify, new(string))       // new peer is handshake completed
 	router.Subscribe(nil, station.txChan, router.NewTxs, []*types.Transaction{})   // NewTxs recived , prepare to broadcast
 	go station.handleMsg()
 	return station
 }
 
+func (s *TxpoolStation) broadcast(txs []*types.Transaction) {
+	txFirst := txs[0]
+	sendCount := 0
+	for _, peerInfo := range s.peers {
+		if peerInfo.hadTxs(txFirst) {
+			continue
+		}
+		router.SendTo(nil, peerInfo.peer, router.P2PTxMsg, txs)
+		peerInfo.addTxs(txs)
+		sendCount++
+		if sendCount > 3 {
+			break
+		}
+	}
+}
+
+/*
+func (s *TxpoolStation) broadcast(txs []*types.Transaction) {
+	txMid, txFirst, txLast := txs[0], txs[len(txs)-1], txs[len(txs)/2]
+	sendCount := 0
+	for _, peerInfo := range s.peers {
+		if peerInfo.hadTxs(txMid) && peerInfo.hadTxs(txFirst) && peerInfo.hadTxs(txLast) {
+			continue
+		}
+		router.SendTo(nil, peerInfo.peer, router.P2PTxMsg, txs)
+		peerInfo.addTxs(txs)
+		sendCount++
+		if sendCount > 3 {
+			break
+		}
+	}
+}
+*/
 func (s *TxpoolStation) handleMsg() {
-	InTxsCache := make([]*types.Transaction, 0, 1024)
-	OutTxsCache := make([]*types.Transaction, 0, 1024)
-	CacheTriger := make(chan struct{})
+	for {
+		e := <-s.txChan
+		switch e.Typecode {
+		case router.NewTxs:
+			txs := e.Data.([]*types.Transaction)
+			s.broadcast(txs)
+		case router.P2PTxMsg:
+			txs := e.Data.([]*types.Transaction)
+			peerInfo := s.peers[e.From.Name()]
+			peerInfo.addTxs(txs)
+			s.txpool.AddRemotes(txs)
+		case router.NewPeerPassedNotify:
+			s.peers[e.From.Name()] = &peerInfo{knownTxs: mapset.NewSet(), peer: e.From}
+			go s.syncTransactions(e)
+		case router.DelPeerNotify:
+			delete(s.peers, e.From.Name())
+		}
+	}
+}
+
+/*
+func (s *TxpoolStation) handleMsg() {
+	InTxsCache := make([]*types.Transaction, 0, 64)
+	OutTxsCache := make([]*types.Transaction, 0, 64)
+	CacheTriger := make(chan struct{}, 1)
 	timer := time.NewTimer(time.Second)
+	timer.Stop()
+	triggerHandle := func() {
+		select {
+		case CacheTriger <- struct{}{}:
+		default:
+		}
+	}
 	for {
 		select {
 		case <-timer.C:
-			CacheTriger <- struct{}{}
+			triggerHandle()
 		case <-CacheTriger:
 			if len(InTxsCache) > 0 {
 				go s.txpool.AddRemotes(InTxsCache)
 				InTxsCache = InTxsCache[:0]
 			}
 			if len(OutTxsCache) > 0 {
-				go router.SendEvent(&router.Event{To: router.GetStationByName("broadcast"), Typecode: router.P2PTxMsg, Data: OutTxsCache})
+				s.broadcast(OutTxsCache)
 				OutTxsCache = OutTxsCache[:0]
 			}
 		case e := <-s.txChan:
@@ -65,27 +155,33 @@ func (s *TxpoolStation) handleMsg() {
 			case router.NewTxs:
 				txs := e.Data.([]*types.Transaction)
 				OutTxsCache = append(OutTxsCache, txs...)
-				if len(OutTxsCache) > 1000 {
-					CacheTriger <- struct{}{}
+				if len(OutTxsCache) > txsSendThreshold {
+					triggerHandle()
 					break
 				}
 				timer.Stop()
-				timer.Reset(time.Second)
+				timer.Reset(txsSendDelay)
 			case router.P2PTxMsg:
 				txs := e.Data.([]*types.Transaction)
+				peerInfo := s.peers[e.From.Name()]
+				peerInfo.addTxs(txs)
 				InTxsCache = append(InTxsCache, txs...)
-				if len(InTxsCache) > 1000 {
-					CacheTriger <- struct{}{}
+				if len(InTxsCache) > txsSendThreshold {
+					triggerHandle()
 					break
 				}
 				timer.Stop()
-				timer.Reset(time.Second)
+				timer.Reset(txsSendDelay)
 			case router.NewPeerPassedNotify:
+				s.peers[e.From.Name()] = &peerInfo{knownTxs: mapset.NewSet(), peer: e.From}
 				go s.syncTransactions(e)
+			case router.DelPeerNotify:
+				delete(s.peers, e.From.Name())
 			}
 		}
 	}
 }
+*/
 
 func (s *TxpoolStation) syncTransactions(e *router.Event) {
 	var txs []*types.Transaction

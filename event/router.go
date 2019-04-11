@@ -20,22 +20,25 @@ import (
 	"fmt"
 	"reflect"
 	"sync"
+	"time"
 )
 
 var printLock sync.Mutex
 
 func Println(args ...interface{}) {
-	//printLock.Lock()
-	//fmt.Printf("%d:", time.Now().Unix())
-	//fmt.Println(args...)
-	//printLock.Unlock()
+	return
+	printLock.Lock()
+	fmt.Printf("%d:", time.Now().Unix())
+	fmt.Println(args...)
+	printLock.Unlock()
 }
 
 func Printf(sfmt string, args ...interface{}) {
-	//printLock.Lock()
-	//fmt.Printf("%d:", time.Now().Unix())
-	//fmt.Printf(sfmt, args...)
-	//printLock.Unlock()
+	return
+	printLock.Lock()
+	fmt.Printf("%d:", time.Now().Unix())
+	fmt.Printf(sfmt, args...)
+	printLock.Unlock()
 }
 
 // ProtoAdaptor used to send out event
@@ -102,7 +105,7 @@ const (
 	P2PNewBlockHashesMsg                   // 14 NewBlockHash notify
 	P2PTxMsg                               // 15 TxMsg notify
 	P2PEndSize
-	ChainHeadEv         = 1024 + iota - P2PEndSize // 1024
+	ChainHeadEv         = 1023 + iota - P2PEndSize // 1024
 	NewPeerNotify                                  // 1025
 	DelPeerNotify                                  // 1026
 	DisconectCtrl                                  // 1027

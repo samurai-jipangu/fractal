@@ -105,7 +105,7 @@ func (adaptor *ProtoAdaptor) adaptorLoop(peer *p2p.Peer, ws p2p.MsgReadWriter) e
 			return err
 		}
 		monitor[e.Typecode]++
-		if e.Typecode != router.P2PTxMsg {
+		if e.Typecode == router.P2PTxMsg {
 			router.Println("monitor=", router.TypeName[e.Typecode], "count=", monitor[e.Typecode], "Txs=", monitor[router.P2PTxMsg])
 		}
 		/*
@@ -126,7 +126,7 @@ func (adaptor *ProtoAdaptor) adaptorLoop(peer *p2p.Peer, ws p2p.MsgReadWriter) e
 		if timeMonitor[e.Typecode][1] > dur || timeMonitor[e.Typecode][1] == 0 {
 			timeMonitor[e.Typecode][1] = dur
 		}
-		if e.Typecode != router.P2PTxMsg {
+		if e.Typecode == router.P2PTxMsg {
 			router.Println("timeMonitor=", router.TypeName[e.Typecode],
 				"max/min/avg=", timeMonitor[e.Typecode][0], timeMonitor[e.Typecode][1], timeMonitor[e.Typecode][2],
 				"txs =", timeMonitor[router.P2PTxMsg][0], timeMonitor[router.P2PTxMsg][1], timeMonitor[router.P2PTxMsg][2])
@@ -196,6 +196,7 @@ func (adaptor *ProtoAdaptor) msgSend(e *router.Event) error {
 func (adaptor *ProtoAdaptor) msgBroadcast(e *router.Event) {
 	te := *e
 	te.To = nil
+	te.From = nil
 	pack, err := event2pack(&te)
 	if err != nil {
 		return
