@@ -93,11 +93,22 @@ func (p *peerInfo) hadTxs(tx *types.Transaction) bool {
 }
 */
 
+type hashPath struct {
+	hash common.Hash
+	path []string
+}
+
 type TxpoolStation struct {
 	station router.Station
 	txChan  chan *router.Event
 	txpool  *TxPool
 	peers   map[string]*peerInfo
+	path    [256]*hashPath
+}
+
+type TransactionWithPath struct {
+	Tx   *types.Transaction
+	Path []string
 }
 
 func NewTxpoolStation(txpool *TxPool) *TxpoolStation {
@@ -107,28 +118,97 @@ func NewTxpoolStation(txpool *TxPool) *TxpoolStation {
 		txpool:  txpool,
 		peers:   make(map[string]*peerInfo),
 	}
-	router.Subscribe(nil, station.txChan, router.P2PTxMsg, []*types.Transaction{}) // recive txs form remote
-	router.Subscribe(nil, station.txChan, router.NewPeerPassedNotify, nil)         // new peer is handshake completed
-	router.Subscribe(nil, station.txChan, router.DelPeerNotify, new(string))       // new peer is handshake completed
-	router.Subscribe(nil, station.txChan, router.NewTxs, []*types.Transaction{})   // NewTxs recived , prepare to broadcast
+	router.Subscribe(nil, station.txChan, router.P2PTxMsg, []*TransactionWithPath{}) // recive txs form remote
+	router.Subscribe(nil, station.txChan, router.NewPeerPassedNotify, nil)           // new peer is handshake completed
+	router.Subscribe(nil, station.txChan, router.DelPeerNotify, new(string))         // new peer is handshake completed
+	router.Subscribe(nil, station.txChan, router.NewTxs, []*types.Transaction{})     // NewTxs recived , prepare to broadcast
 	go station.handleMsg()
 	return station
 }
 
+func (s *TxpoolStation) addTx(tx *types.Transaction, path []string) {
+	hash := tx.Hash()
+	index := hash[0]
+	if s.path[index] == nil {
+		s.path[index] = &hashPath{hash: hash, path: path}
+	} else if s.path[index].hash != hash {
+		s.path[index].hash = hash
+		s.path[index].path = path
+		return
+	}
+	s.path[index].path = append(s.path[index].path, path...)
+}
+
+func (s *TxpoolStation) addTxs(txs []*TransactionWithPath, from string) {
+	for _, tx := range txs {
+		s.addTx(tx.Tx, append(tx.Path, from))
+	}
+}
+
+func (s *TxpoolStation) getTxPath(tx *types.Transaction) []string {
+	hash := tx.Hash()
+	index := hash[0]
+	if s.path[index] == nil || s.path[index].hash != hash {
+		return nil
+	}
+	return s.path[index].path
+}
+
+func (s *TxpoolStation) existPath(tx *types.Transaction, path string) bool {
+	hash := tx.Hash()
+	index := hash[0]
+	if s.path[index] == nil || s.path[index].hash != hash {
+		return false
+	}
+	for _, p := range s.path[index].path {
+		if p == path {
+			return true
+		}
+	}
+	return false
+}
+
+var hasTx = 0
+var existTx = 0
+
 func (s *TxpoolStation) broadcast(txs []*types.Transaction) {
 	txFirst := txs[0]
-	sendCount := 0
-	for _, peerInfo := range s.peers {
+	peers := make([]router.Station, 0, 3)
+	index := 0
+	for name, peerInfo := range s.peers {
 		if peerInfo.hadTxs(txFirst) {
+			router.Println("has tx", hasTx)
+			hasTx++
 			continue
 		}
-		go router.SendTo(nil, peerInfo.peer, router.P2PTxMsg, txs)
+		if s.existPath(txFirst, name) {
+			router.Println("existPath", existTx)
+			existTx++
+			continue
+		}
+		peers = append(peers, peerInfo.peer)
 		peerInfo.addTxs(txs)
-		sendCount++
-		if sendCount > 3 {
+		s.addTx(txFirst, []string{name})
+		index++
+		if index >= 3 {
 			break
 		}
 	}
+	router.Println("Broadcast num:", len(peers), len(s.peers))
+	if len(peers) == 0 {
+		return
+	}
+	txsSend := &TransactionWithPath{
+		Tx:   txFirst,
+		Path: s.getTxPath(txFirst),
+	}
+	go func() {
+		for _, peer := range peers {
+			router.SendTo(nil, peer, router.P2PTxMsg, []*TransactionWithPath{
+				txsSend,
+			})
+		}
+	}()
 }
 
 /*
@@ -156,13 +236,21 @@ func (s *TxpoolStation) handleMsg() {
 			txs := e.Data.([]*types.Transaction)
 			s.broadcast(txs)
 		case router.P2PTxMsg:
-			txs := e.Data.([]*types.Transaction)
+			txs := e.Data.([]*TransactionWithPath)
 			peerInfo := s.peers[e.From.Name()]
-			peerInfo.addTxs(txs)
-			go s.txpool.AddRemotes(txs)
+			s.addTxs(txs, e.From.Name())
+			rawTxs := make([]*types.Transaction, len(txs))
+			for i := range txs {
+				rawTxs[i] = txs[i].Tx
+			}
+			if peerInfo != nil {
+				peerInfo.addTxs(rawTxs)
+			}
+			go s.txpool.AddRemotes(rawTxs)
 		case router.NewPeerPassedNotify:
 			//s.peers[e.From.Name()] = &peerInfo{knownTxs: mapset.NewSet(), peer: e.From}
 			s.peers[e.From.Name()] = &peerInfo{peer: e.From}
+			router.Printf("add new peers:%x\n", e.From.Name())
 			go s.syncTransactions(e)
 		case router.DelPeerNotify:
 			delete(s.peers, e.From.Name())
