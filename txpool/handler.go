@@ -122,14 +122,13 @@ func (s *TxpoolStation) broadcast(txs []*types.Transaction) {
 		if peerInfo.hadTxs(txFirst) {
 			continue
 		}
-		router.SendTo(nil, peerInfo.peer, router.P2PTxMsg, txs)
+		go router.SendTo(nil, peerInfo.peer, router.P2PTxMsg, txs)
 		peerInfo.addTxs(txs)
 		sendCount++
-		if sendCount > 5 {
+		if sendCount > 3 {
 			break
 		}
 	}
-	router.Println("broadcast:", sendCount)
 }
 
 /*
@@ -160,7 +159,7 @@ func (s *TxpoolStation) handleMsg() {
 			txs := e.Data.([]*types.Transaction)
 			peerInfo := s.peers[e.From.Name()]
 			peerInfo.addTxs(txs)
-			s.txpool.AddRemotes(txs)
+			go s.txpool.AddRemotes(txs)
 		case router.NewPeerPassedNotify:
 			//s.peers[e.From.Name()] = &peerInfo{knownTxs: mapset.NewSet(), peer: e.From}
 			s.peers[e.From.Name()] = &peerInfo{peer: e.From}

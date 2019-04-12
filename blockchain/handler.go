@@ -134,7 +134,9 @@ func (bs *BlockchainStation) loop() {
 func (bs *BlockchainStation) handleMsg(e *router.Event) error {
 	router.Printf("handleMsg:%s %x\n", router.TypeName[e.Typecode], e.From.Name())
 	start := time.Now().Unix()
-	defer router.Printf("exit handleMsg:%s %x %d\n", router.TypeName[e.Typecode], e.From.Name(), time.Now().Unix()-start)
+	defer func() {
+		router.Printf("exit handleMsg:%s %x %d\n", router.TypeName[e.Typecode], e.From.Name(), time.Now().Unix()-start)
+	}()
 	switch e.Typecode {
 	case router.P2PGetStatus:
 		status := bs.chainStatus()
