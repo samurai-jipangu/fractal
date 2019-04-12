@@ -80,7 +80,7 @@ func (s *TxpoolStation) broadcast(txs []*types.Transaction) {
 		router.SendTo(nil, peerInfo.peer, router.P2PTxMsg, txs)
 		peerInfo.addTxs(txs)
 		sendCount++
-		if sendCount > 3 {
+		if sendCount > 5 {
 			break
 		}
 	}

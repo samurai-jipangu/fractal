@@ -26,7 +26,7 @@ import (
 var printLock sync.Mutex
 
 func Println(args ...interface{}) {
-	return
+	//return
 	printLock.Lock()
 	fmt.Printf("%d:", time.Now().Unix())
 	fmt.Println(args...)
@@ -34,7 +34,7 @@ func Println(args ...interface{}) {
 }
 
 func Printf(sfmt string, args ...interface{}) {
-	return
+	//return
 	printLock.Lock()
 	fmt.Printf("%d:", time.Now().Unix())
 	fmt.Printf(sfmt, args...)

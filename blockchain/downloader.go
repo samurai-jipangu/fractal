@@ -430,6 +430,7 @@ func (dl *Downloader) multiplexDownload(status *stationStatus) bool {
 	n, err := dl.assignDownloadTask(hashes, numbers)
 	status.ancestor = n
 	if err != nil {
+		router.SendTo(nil, status.station, router.DisconectCtrl, nil)
 		log.Debug(fmt.Sprint("Insert error:", n, err))
 	}
 
@@ -543,13 +544,8 @@ func (dl *Downloader) assignDownloadTask(hashes []common.Hash, numbers []uint64)
 		if blocks == nil {
 			return start - 1, nil
 		}
-		if _, err := dl.blockchain.InsertChain(blocks); err != nil {
-			// bug: try again...
-			log.Debug("bug: try again...")
-			time.Sleep(time.Second)
-			if index, err := dl.blockchain.InsertChain(blocks); err != nil {
-				return blocks[index].NumberU64() - 1, err
-			}
+		if index, err := dl.blockchain.InsertChain(blocks); err != nil {
+			return blocks[index].NumberU64() - 1, err
 		}
 	}
 	return numbers[len(numbers)-1], nil
