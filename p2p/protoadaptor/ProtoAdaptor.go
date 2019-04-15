@@ -116,9 +116,9 @@ func (adaptor *ProtoAdaptor) adaptorLoop(peer *p2p.Peer, ws p2p.MsgReadWriter) e
 				return fmt.Errorf("DDos %x", e.From.Name())
 			}
 		*/
-		start := time.Now().Unix()
+		start := router.TimeMs()
 		router.SendEvent(e)
-		dur := time.Now().Unix() - start
+		dur := router.TimeMs() - start
 		timeMonitor[e.Typecode][2] += dur
 		if timeMonitor[e.Typecode][0] < dur {
 			timeMonitor[e.Typecode][0] = dur
@@ -203,8 +203,8 @@ func (adaptor *ProtoAdaptor) msgBroadcast(e *router.Event) {
 	}
 
 	router.Println("msgBroadcast:", router.TypeName[e.Typecode])
-	start := time.Now().Unix()
-	defer router.Println("exit msgBroadcast:", router.TypeName[e.Typecode], time.Now().Unix()-start)
+	start := router.TimeMs()
+	defer func() { router.Println("exit msgBroadcast:", router.TypeName[e.Typecode], router.TimeMs()-start) }()
 
 	send := func(peer *remotePeer) {
 		p2p.Send(peer.ws, 0, pack)

@@ -17,6 +17,7 @@
 package txpool
 
 import (
+	"sync/atomic"
 	"time"
 
 	"github.com/fractalplatform/fractal/common"
@@ -61,6 +62,15 @@ func (q *hashQueue) has(hash common.Hash) bool {
 type peerInfo struct {
 	knownTxs hashQueue
 	peer     router.Station
+	idle     int32
+}
+
+func (p *peerInfo) setIdle() {
+	atomic.StoreInt32(&p.idle, 0)
+}
+
+func (p *peerInfo) setBusy() bool {
+	return atomic.CompareAndSwapInt32(&p.idle, 0, 1)
 }
 
 func (p *peerInfo) addTxs(txs []*types.Transaction) {
@@ -173,7 +183,7 @@ var existTx = 0
 
 func (s *TxpoolStation) broadcast(txs []*types.Transaction) {
 	txFirst := txs[0]
-	peers := make([]router.Station, 0, 3)
+	peers := make([]*peerInfo, 0, 3)
 	index := 0
 	for name, peerInfo := range s.peers {
 		if peerInfo.hadTxs(txFirst) {
@@ -186,7 +196,10 @@ func (s *TxpoolStation) broadcast(txs []*types.Transaction) {
 			existTx++
 			continue
 		}
-		peers = append(peers, peerInfo.peer)
+		if !peerInfo.setBusy() {
+			continue
+		}
+		peers = append(peers, peerInfo)
 		peerInfo.addTxs(txs)
 		s.addTx(txFirst, []string{name})
 		index++
@@ -203,10 +216,15 @@ func (s *TxpoolStation) broadcast(txs []*types.Transaction) {
 		Path: s.getTxPath(txFirst),
 	}
 	go func() {
+		start := router.TimeMs()
+		defer func() {
+			router.Println("txs Broadcast:", len(peers), len(s.peers), router.TimeMs()-start)
+		}()
 		for _, peer := range peers {
-			router.SendTo(nil, peer, router.P2PTxMsg, []*TransactionWithPath{
+			router.SendTo(nil, peer.peer, router.P2PTxMsg, []*TransactionWithPath{
 				txsSend,
 			})
+			peer.setIdle()
 		}
 	}()
 }
@@ -248,10 +266,11 @@ func (s *TxpoolStation) handleMsg() {
 			}
 			go s.txpool.AddRemotes(rawTxs)
 		case router.NewPeerPassedNotify:
+			newpeer := &peerInfo{peer: e.From, idle: 1}
 			//s.peers[e.From.Name()] = &peerInfo{knownTxs: mapset.NewSet(), peer: e.From}
-			s.peers[e.From.Name()] = &peerInfo{peer: e.From}
+			s.peers[e.From.Name()] = newpeer
 			router.Printf("add new peers:%x\n", e.From.Name())
-			go s.syncTransactions(e)
+			s.syncTransactions(newpeer)
 		case router.DelPeerNotify:
 			delete(s.peers, e.From.Name())
 		}
@@ -317,14 +336,19 @@ func (s *TxpoolStation) handleMsg() {
 }
 */
 
-func (s *TxpoolStation) syncTransactions(e *router.Event) {
-	var txs []*types.Transaction
+func (s *TxpoolStation) syncTransactions(peer *peerInfo) {
+	var txs []*TransactionWithPath
 	pending, _ := s.txpool.Pending()
 	for _, batch := range pending {
-		txs = append(txs, batch...)
+		for _, tx := range batch {
+			txs = append(txs, &TransactionWithPath{Tx: tx, Path: s.getTxPath(tx)})
+		}
 	}
 	if len(txs) == 0 {
 		return
 	}
-	router.SendTo(nil, e.From, router.P2PTxMsg, txs)
+	go func() {
+		router.SendTo(nil, peer.peer, router.P2PTxMsg, txs)
+		peer.setIdle()
+	}()
 }

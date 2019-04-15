@@ -133,9 +133,13 @@ func (bs *BlockchainStation) loop() {
 // peer. The remote connection is torn down upon returning any error.
 func (bs *BlockchainStation) handleMsg(e *router.Event) error {
 	router.Printf("handleMsg:%s %x\n", router.TypeName[e.Typecode], e.From.Name())
-	start := time.Now().Unix()
+	start := router.TimeMs()
 	defer func() {
-		router.Printf("exit handleMsg:%s %x %d\n", router.TypeName[e.Typecode], e.From.Name(), time.Now().Unix()-start)
+		dur := router.TimeMs() - start
+		if router.P2PGetBlockBodiesMsg == e.Typecode {
+			router.Println("body len:", len(e.Data.([]common.Hash)))
+		}
+		router.Printf("exit handleMsg:%s %x %d\n", router.TypeName[e.Typecode], e.From.Name(), dur)
 	}()
 	switch e.Typecode {
 	case router.P2PGetStatus:

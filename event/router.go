@@ -25,10 +25,17 @@ import (
 
 var printLock sync.Mutex
 
+func TimeMs() int64 {
+	return time.Now().UnixNano() / 1e6
+}
+func TimeUs() int64 {
+	return time.Now().UnixNano() / 1e3
+}
+
 func Println(args ...interface{}) {
 	//return
 	//	printLock.Lock()
-	fmt.Printf("%d:", time.Now().Unix())
+	fmt.Printf("%d:", TimeMs())
 	fmt.Println(args...)
 	//	printLock.Unlock()
 }
@@ -36,7 +43,7 @@ func Println(args ...interface{}) {
 func Printf(sfmt string, args ...interface{}) {
 	//return
 	//	printLock.Lock()
-	fmt.Printf("%d:", time.Now().Unix())
+	fmt.Printf("%d:", TimeMs())
 	fmt.Printf(sfmt, args...)
 	//	printLock.Unlock()
 }
