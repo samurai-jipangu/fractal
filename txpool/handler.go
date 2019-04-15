@@ -345,6 +345,7 @@ func (s *TxpoolStation) syncTransactions(peer *peerInfo) {
 		}
 	}
 	if len(txs) == 0 {
+		peer.setIdle()
 		return
 	}
 	go func() {
