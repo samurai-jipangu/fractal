@@ -3,6 +3,7 @@ package protoadaptor
 import (
 	"fmt"
 	"reflect"
+	"sync/atomic"
 	"time"
 
 	"github.com/ethereum/go-ethereum/log"
@@ -90,7 +91,7 @@ func (adaptor *ProtoAdaptor) adaptorLoop(peer *p2p.Peer, ws p2p.MsgReadWriter) e
 
 	//monitor := make(map[int][]int64)
 	monitor := [router.P2PEndSize]int{}
-	timeMonitor := [router.P2PEndSize][3]int64{}
+	timeMonitor := [router.P2PEndSize]int64{}
 	for {
 		msg, err := ws.ReadMsg()
 		if err != nil {
@@ -116,21 +117,13 @@ func (adaptor *ProtoAdaptor) adaptorLoop(peer *p2p.Peer, ws p2p.MsgReadWriter) e
 				return fmt.Errorf("DDos %x", e.From.Name())
 			}
 		*/
-		start := router.TimeMs()
-		router.SendEvent(e)
-		dur := router.TimeMs() - start
-		timeMonitor[e.Typecode][2] += dur
-		if timeMonitor[e.Typecode][0] < dur {
-			timeMonitor[e.Typecode][0] = dur
-		}
-		if timeMonitor[e.Typecode][1] > dur || timeMonitor[e.Typecode][1] == 0 {
-			timeMonitor[e.Typecode][1] = dur
-		}
-		{
-			router.Println("timeMonitor=", router.TypeName[e.Typecode],
-				"max/min/avg=", timeMonitor[e.Typecode][0], timeMonitor[e.Typecode][1], timeMonitor[e.Typecode][2],
-				"txs =", timeMonitor[router.P2PTxMsg][0], timeMonitor[router.P2PTxMsg][1], timeMonitor[router.P2PTxMsg][2])
-		}
+		go func() {
+			start := router.TimeMs()
+			router.SendEvent(e)
+			dur := router.TimeMs() - start
+			ret := atomic.AddInt64(&timeMonitor[e.Typecode], dur)
+			router.Println("timeMonitor=", router.TypeName[e.Typecode], "cur/total=", dur, ret)
+		}()
 	}
 }
 

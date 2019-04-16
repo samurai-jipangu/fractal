@@ -105,7 +105,7 @@ func (p *peerInfo) hadTxs(tx *types.Transaction) bool {
 
 type hashPath struct {
 	hash common.Hash
-	path []string
+	path map[string]struct{}
 }
 
 type TxpoolStation struct {
@@ -124,7 +124,7 @@ type TransactionWithPath struct {
 func NewTxpoolStation(txpool *TxPool) *TxpoolStation {
 	station := &TxpoolStation{
 		station: router.NewLocalStation("txpool", nil),
-		txChan:  make(chan *router.Event),
+		txChan:  make(chan *router.Event, 1024),
 		txpool:  txpool,
 		peers:   make(map[string]*peerInfo),
 	}
@@ -139,14 +139,12 @@ func NewTxpoolStation(txpool *TxPool) *TxpoolStation {
 func (s *TxpoolStation) addTx(tx *types.Transaction, path []string) {
 	hash := tx.Hash()
 	index := hash[0]
-	if s.path[index] == nil {
-		s.path[index] = &hashPath{hash: hash, path: path}
-	} else if s.path[index].hash != hash {
-		s.path[index].hash = hash
-		s.path[index].path = path
-		return
+	if s.path[index] == nil || s.path[index].hash != hash {
+		s.path[index] = &hashPath{hash: hash, path: make(map[string]struct{})}
 	}
-	s.path[index].path = append(s.path[index].path, path...)
+	for _, p := range path {
+		s.path[index].path[p] = struct{}{}
+	}
 }
 
 func (s *TxpoolStation) addTxs(txs []*TransactionWithPath, from string) {
@@ -161,7 +159,11 @@ func (s *TxpoolStation) getTxPath(tx *types.Transaction) []string {
 	if s.path[index] == nil || s.path[index].hash != hash {
 		return nil
 	}
-	return s.path[index].path
+	path := make([]string, 0, len(s.path[index].path))
+	for p := range s.path[index].path {
+		path = append(path, p)
+	}
+	return path
 }
 
 func (s *TxpoolStation) existPath(tx *types.Transaction, path string) bool {
@@ -170,7 +172,7 @@ func (s *TxpoolStation) existPath(tx *types.Transaction, path string) bool {
 	if s.path[index] == nil || s.path[index].hash != hash {
 		return false
 	}
-	for _, p := range s.path[index].path {
+	for p := range s.path[index].path {
 		if p == path {
 			return true
 		}
@@ -180,23 +182,31 @@ func (s *TxpoolStation) existPath(tx *types.Transaction, path string) bool {
 
 var hasTx = 0
 var existTx = 0
+var busyTx = 0
 
 func (s *TxpoolStation) broadcast(txs []*types.Transaction) {
 	txFirst := txs[0]
 	peers := make([]*peerInfo, 0, 3)
 	index := 0
 	for name, peerInfo := range s.peers {
+		skipFlag := 0
 		if peerInfo.hadTxs(txFirst) {
-			router.Println("has tx", hasTx)
 			hasTx++
+			skipFlag |= 1
 			continue
 		}
 		if s.existPath(txFirst, name) {
-			router.Println("existPath", existTx)
 			existTx++
+			skipFlag |= 2
 			continue
 		}
 		if !peerInfo.setBusy() {
+			busyTx++
+			skipFlag |= 4
+			continue
+		}
+		if skipFlag > 0 {
+			router.Printf("has tx:%d-%d existTx:%d-%d busyTx:%d-%d\n", skipFlag&1, hasTx, skipFlag&2, existTx, skipFlag&4, busyTx)
 			continue
 		}
 		peers = append(peers, peerInfo)
