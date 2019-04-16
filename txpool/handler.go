@@ -193,17 +193,17 @@ func (s *TxpoolStation) broadcast(txs []*types.Transaction) {
 		if peerInfo.hadTxs(txFirst) {
 			hasTx++
 			skipFlag |= 1
-			continue
+			//continue
 		}
 		if s.existPath(txFirst, name) {
 			existTx++
 			skipFlag |= 2
-			continue
+			//continue
 		}
 		if !peerInfo.setBusy() {
 			busyTx++
 			skipFlag |= 4
-			continue
+			//continue
 		}
 		if skipFlag > 0 {
 			router.Printf("has tx:%d-%d existTx:%d-%d busyTx:%d-%d\n", skipFlag&1, hasTx, skipFlag&2, existTx, skipFlag&4, busyTx)
