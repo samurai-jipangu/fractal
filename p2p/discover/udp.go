@@ -266,6 +266,7 @@ func newUDP(c conn, cfg Config) (*Table, *udp, error) {
 	}
 	self := enode.NewV4(&cfg.PrivateKey.PublicKey, realaddr.IP, cfg.TCPPort, realaddr.Port)
 	db, err := enode.OpenDB(cfg.NodeDBPath)
+	log.Info(fmt.Sprintf("p2p:UPD db %p", db))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -280,12 +281,14 @@ func newUDP(c conn, cfg Config) (*Table, *udp, error) {
 		netID:       cfg.NetworkID,
 	}
 	// TODO: separate TCP port
+	log.Info(fmt.Sprintf("p2p:UDP udp %p", udp))
 	udp.ourEndpoint = makeEndpoint(realaddr, uint16(realaddr.Port))
 	tab, err := newTable(udp, self, db, cfg.Bootnodes)
 	if err != nil {
 		return nil, nil, err
 	}
 	udp.Table = tab
+	log.Info(fmt.Sprintf("p2p:UDP tab %p", tab))
 
 	go udp.loop()
 	go udp.readLoop(cfg.Unhandled)
@@ -301,12 +304,18 @@ func (t *udp) close() {
 
 // ping sends a ping message to the given node and waits for a reply.
 func (t *udp) ping(toid enode.ID, toaddr *net.UDPAddr) error {
+	if t.db == nil {
+		log.Error(fmt.Sprintf("ping: %p %p %p", t, t.Table, t.db))
+	}
 	return <-t.sendPing(toid, toaddr, nil)
 }
 
 // sendPing sends a ping message to the given node and invokes the callback
 // when the reply arrives.
 func (t *udp) sendPing(toid enode.ID, toaddr *net.UDPAddr, callback func()) <-chan error {
+	if t.db == nil {
+		log.Error(fmt.Sprintf("sendPing: %p %p %p", t, t.Table, t.db))
+	}
 	req := &ping{
 		NetID:      t.netID,
 		Version:    udpVersion,
@@ -340,6 +349,9 @@ func (t *udp) waitping(from enode.ID) error {
 func (t *udp) findnode(toid enode.ID, toaddr *net.UDPAddr, target encPubkey) ([]*node, error) {
 	// If we haven't seen a ping from the destination node for a while, it won't remember
 	// our endpoint proof and reject findnode. Solicit a ping first.
+	if t.db == nil {
+		log.Error(fmt.Sprintf("findnode: %p %p %p", t, t.Table, t.db))
+	}
 	if time.Since(t.db.LastPingReceived(toid)) > bondExpiration {
 		t.ping(toid, toaddr)
 		t.waitping(toid)
